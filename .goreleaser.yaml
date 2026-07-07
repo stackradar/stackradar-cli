@@ -1,0 +1,77 @@
+version: 2
+
+project_name: stackradar
+
+gomod:
+  proxy: true
+  env:
+    - GOPROXY=https://proxy.golang.org,direct
+    - GOSUMDB=sum.golang.org
+
+builds:
+  - id: stackradar
+    main: ./cmd/stackradar
+    binary: stackradar
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/stackradar/stackradar-cli/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/stackradar/stackradar-cli/internal/buildinfo.Commit={{ .Commit }}
+      - -X github.com/stackradar/stackradar-cli/internal/buildinfo.Date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: stackradar
+    ids:
+      - stackradar
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
+sboms:
+  - id: archive
+    artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.spdx.json"
+    args:
+      - "$artifact"
+      - "--output"
+      - "spdx-json=$document"
+    disable: false
+
+snapshot:
+  version_template: "0.0.0-next"
+
+release:
+  github:
+    owner: stackradar
+    name: stackradar-cli
+  draft: true

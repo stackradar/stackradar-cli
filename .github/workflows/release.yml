@@ -1,0 +1,329 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+
+jobs:
+  slsa-policy:
+    name: SLSA Policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check private repository opt-in
+        env:
+          IS_PRIVATE: ${{ github.event.repository.private }}
+          SLSA_PRIVATE_REPOSITORY: ${{ vars.SLSA_PRIVATE_REPOSITORY }}
+        run: |
+          if [[ "$IS_PRIVATE" == "true" && "$SLSA_PRIVATE_REPOSITORY" != "true" ]]; then
+            echo "::error::This repository is private. Make it public before tagging a release, or set the SLSA_PRIVATE_REPOSITORY repository variable to true to opt into public transparency-log publication for private-repository provenance."
+            exit 1
+          fi
+
+  release-preflight:
+    name: Release Preflight
+    needs:
+      - slsa-policy
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Check tag commit is on main
+        run: |
+          set -euo pipefail
+
+          tag_commit="$(git rev-list -n 1 "${GITHUB_REF_NAME}^{commit}")"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+          if ! git merge-base --is-ancestor "$tag_commit" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points to ${tag_commit}, which is not reachable from origin/main."
+            exit 1
+          fi
+
+          echo "TAG_COMMIT=${tag_commit}" >> "$GITHUB_ENV"
+
+      - name: Check CI passed for tag commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          ci_run_url="$(
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "ci.yml" \
+              --commit "$TAG_COMMIT" \
+              --json conclusion,headSha,status,url \
+              --limit 20 \
+              | jq --raw-output --arg sha "$TAG_COMMIT" 'map(select(.headSha == $sha and .status == "completed" and .conclusion == "success")) | .[0].url // empty'
+          )"
+
+          if [[ -z "$ci_run_url" ]]; then
+            echo "::error::No successful ci.yml run was found for tag commit ${TAG_COMMIT}. Wait for CI on main to pass, then tag the same commit."
+            exit 1
+          fi
+
+          echo "Found successful CI run for ${TAG_COMMIT}: ${ci_run_url}"
+
+  release:
+    name: Release
+    needs:
+      - release-preflight
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    outputs:
+      artifact-version: ${{ steps.artifact-version.outputs.version }}
+      slsa-subjects: ${{ steps.slsa-subjects.outputs.hashes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.1
+
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.46.0
+
+      - name: Add Syft to PATH
+        run: echo "$(dirname "${{ steps.syft.outputs.cmd }}")" >> "$GITHUB_PATH"
+
+      - name: Run GoReleaser
+        id: run-goreleaser
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: v2.17.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive artifact version
+        id: artifact-version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SLSA subjects
+        id: slsa-subjects
+        env:
+          ARTIFACTS: ${{ steps.run-goreleaser.outputs.artifacts }}
+        run: |
+          set -euo pipefail
+          hashes=$(jq --raw-output '.[] | {name, "digest": (.extra.Digest // .extra.Checksum)} | select(.digest) | {digest} + {name} | join("  ") | sub("^sha256:";"")' <<< "$ARTIFACTS" | base64 -w0)
+          test -n "$hashes"
+          echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
+
+      - name: Attest release artifacts
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-checksums: dist/stackradar_${{ steps.artifact-version.outputs.version }}_checksums.txt
+
+  provenance:
+    name: SLSA Provenance
+    needs:
+      - release
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    # SLSA's generic generator must be referenced by an @vX.Y.Z tag, not a commit SHA;
+    # slsa-verifier relies on the trusted reusable workflow ref and the generator fails when hash-pinned.
+    # See:
+    # - https://github.com/slsa-framework/slsa-github-generator/blob/4d014fae4dbd39eb09e8d40348b73db095e6ba9a/README.md#referencing-slsa-builders-and-generators
+    # - https://github.com/slsa-framework/slsa-verifier/issues/12
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.release.outputs.slsa-subjects }}
+      upload-assets: true
+      draft-release: "true"
+      private-repository: ${{ vars.SLSA_PRIVATE_REPOSITORY == 'true' }}
+      provenance-name: stackradar_${{ needs.release.outputs.artifact-version }}_multiple.intoto.jsonl
+
+  verify-draft:
+    name: Verify Draft Release
+    needs:
+      - release
+      - provenance
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.1
+
+      - name: Install SLSA verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Download draft release assets
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          release_json="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              | jq --slurp --arg tag "$TAG" 'flatten | map(select(.tag_name == $tag)) | first // empty'
+          )"
+
+          if [[ -z "$release_json" ]]; then
+            echo "::error::Release $TAG was not found."
+            exit 1
+          fi
+
+          asset_count="$(jq '.assets | length' <<< "$release_json")"
+          if [[ "$asset_count" -eq 0 ]]; then
+            echo "::error::Release $TAG has no assets."
+            exit 1
+          fi
+
+          echo "Found release $TAG with $asset_count assets."
+
+          jq -r '.assets[] | [.id, .name] | @tsv' <<< "$release_json" | while IFS=$'\t' read -r asset_id asset_name; do
+            case "$asset_name" in
+              */*|*..*)
+                echo "::error::Refusing to download release asset with unsafe name: $asset_name"
+                exit 1
+                ;;
+            esac
+
+            gh api \
+              --header "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              > "dist/${asset_name}"
+          done
+
+      - name: Verify checksum signature
+        env:
+          VERSION: ${{ needs.release.outputs.artifact-version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          checksums="dist/stackradar_${VERSION}_checksums.txt"
+          cosign verify-blob "$checksums" \
+            --bundle "${checksums}.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+      - name: Verify archive checksums
+        env:
+          VERSION: ${{ needs.release.outputs.artifact-version }}
+        run: |
+          set -euo pipefail
+
+          cd dist
+          shasum -a 256 -c "stackradar_${VERSION}_checksums.txt"
+
+      - name: Verify artifact attestations
+        env:
+          VERSION: ${{ needs.release.outputs.artifact-version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          while read -r checksum artifact; do
+            case "$artifact" in
+              *.tar.gz|*.zip|*.sbom.spdx.json)
+                gh attestation verify "dist/$artifact" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml" \
+                  --source-ref "refs/tags/${TAG}"
+                ;;
+            esac
+          done < "dist/stackradar_${VERSION}_checksums.txt"
+
+      - name: Verify SLSA provenance
+        env:
+          VERSION: ${{ needs.release.outputs.artifact-version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          cd dist
+          artifacts=()
+          while read -r checksum artifact; do
+            case "$artifact" in
+              *.tar.gz|*.zip|*.sbom.spdx.json)
+                artifacts+=("$artifact")
+                ;;
+            esac
+          done < "stackradar_${VERSION}_checksums.txt"
+
+          test "${#artifacts[@]}" -eq 12
+          slsa-verifier verify-artifact "${artifacts[@]}" \
+            --provenance-path "stackradar_${VERSION}_multiple.intoto.jsonl" \
+            --source-uri "github.com/${GITHUB_REPOSITORY}" \
+            --source-tag "$TAG"
+
+      - name: Smoke test Linux archive
+        run: |
+          set -euo pipefail
+
+          archive="$(find dist -name 'stackradar_*_linux_amd64.tar.gz' -print -quit)"
+          test -n "$archive"
+          mkdir -p /tmp/stackradar-smoke
+          tar -xzf "$archive" -C /tmp/stackradar-smoke
+          /tmp/stackradar-smoke/stackradar version
+
+  publish:
+    name: Publish Release
+    needs:
+      - verify-draft
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          release_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              | jq --slurp --arg tag "$TAG" --raw-output 'flatten | map(select(.tag_name == $tag)) | first.id // empty'
+          )"
+
+          if [[ -z "$release_id" ]]; then
+            echo "::error::Release $TAG was not found."
+            exit 1
+          fi
+
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            --field draft=false

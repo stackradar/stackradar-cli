@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Check module tidiness
+        run: |
+          go mod tidy
+          (cd tools && go mod tidy)
+          git diff --exit-code -- go.mod go.sum tools/go.mod tools/go.sum
+
+      - name: Check formatting
+        run: make fmt-check
+
+      - name: Run tests
+        run: make test
+
+      - name: Run race/shuffle tests
+        run: make test-race
+
+      - name: Run vet
+        run: make vet
+
+      - name: Run lint
+        run: make lint
+
+      - name: Build
+        run: make build
+
+      - name: Smoke test commands
+        run: |
+          go run ./cmd/stackradar --help
+          go run ./cmd/stackradar version
+          go run ./cmd/stackradar upload --help
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.1
+
+      - name: Check GoReleaser config
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: v2.17.0
+          args: check
+
+  snapshot:
+    name: Snapshot Release
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.46.0
+
+      - name: Add Syft to PATH
+        run: echo "$(dirname "${{ steps.syft.outputs.cmd }}")" >> "$GITHUB_PATH"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.1
+
+      - name: Build snapshot release
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: v2.17.0
+          args: release --snapshot --clean --skip=publish,sign
+
+      - name: Verify SBOM artifacts
+        run: |
+          found=0
+          for archive in dist/*.tar.gz dist/*.zip; do
+            test -f "$archive"
+            test -f "$archive.sbom.spdx.json"
+            jq -e '.spdxVersion and .creationInfo and .packages' "$archive.sbom.spdx.json" > /dev/null
+            jq -e '.packages[]? | select(.name == "github.com/spf13/cobra" and .versionInfo == "v1.10.2")' "$archive.sbom.spdx.json" > /dev/null
+            found=$((found + 1))
+          done
+          test "$found" -eq 6
+
+      - name: Verify checksums
+        run: |
+          cd dist
+          shasum -a 256 -c stackradar_*_checksums.txt
+
+      - name: Smoke test Linux archive
+        run: |
+          archive="$(find dist -name 'stackradar_*_linux_amd64.tar.gz' -print -quit)"
+          test -n "$archive"
+          mkdir -p /tmp/stackradar-smoke
+          tar -xzf "$archive" -C /tmp/stackradar-smoke
+          /tmp/stackradar-smoke/stackradar version
+
+  govulncheck:
+    name: Govulncheck
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Run govulncheck
+        run: make govulncheck
