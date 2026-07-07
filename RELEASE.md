@@ -1,8 +1,18 @@
 # Release Process
 
 Only maintainers with release rights may create `vMAJOR.MINOR.PATCH` tags.
+Release tags are protected by a repository ruleset for `refs/tags/v*`; until a
+dedicated release team exists, only organization admins may create, update, or
+delete those tags.
+
+All changes to `main` must go through a pull request. The `main` branch ruleset
+blocks deletions and non-fast-forward updates, requires pull requests, and
+requires the `Test`, `Govulncheck`, and `Snapshot Release` status checks to
+pass before merge.
+
 Tags must point to a commit that is reachable from `main`, and `ci.yml` must
-already have completed successfully for that exact commit.
+already have completed successfully for that exact commit. The release workflow
+also verifies both conditions before building artifacts.
 
 Do not upload release artifacts from a workstation. The release workflow builds
 all customer-facing artifacts in GitHub Actions, creates a draft release,
