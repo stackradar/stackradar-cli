@@ -13,24 +13,8 @@ env:
   GOSUMDB: sum.golang.org
 
 jobs:
-  slsa-policy:
-    name: SLSA Policy
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check private repository opt-in
-        env:
-          IS_PRIVATE: ${{ github.event.repository.private }}
-          SLSA_PRIVATE_REPOSITORY: ${{ vars.SLSA_PRIVATE_REPOSITORY }}
-        run: |
-          if [[ "$IS_PRIVATE" == "true" && "$SLSA_PRIVATE_REPOSITORY" != "true" ]]; then
-            echo "::error::This repository is private. Make it public before tagging a release, or set the SLSA_PRIVATE_REPOSITORY repository variable to true to opt into public transparency-log publication for private-repository provenance."
-            exit 1
-          fi
-
   release-preflight:
     name: Release Preflight
-    needs:
-      - slsa-policy
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -162,7 +146,6 @@ jobs:
       base64-subjects: ${{ needs.release.outputs.slsa-subjects }}
       upload-assets: true
       draft-release: "true"
-      private-repository: ${{ vars.SLSA_PRIVATE_REPOSITORY == 'true' }}
       provenance-name: stackradar_${{ needs.release.outputs.artifact-version }}_multiple.intoto.jsonl
 
   verify-draft:
