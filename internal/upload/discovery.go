@@ -15,8 +15,9 @@ import (
 var ErrNoDependencyFiles = errors.New("no supported dependency files found")
 
 type DiscoverOptions struct {
-	Root     string
-	Excludes []string
+	Root            string
+	Excludes        []string
+	IgnoreGitignore bool
 }
 
 type Discovery struct {
@@ -81,14 +82,18 @@ func Discover(options DiscoverOptions) (Discovery, error) {
 		return Discovery{}, err
 	}
 
-	gitignore, err := loadRootGitignore(root)
-	if err != nil {
-		return Discovery{}, err
+	var gitignore gitignoreMatcher
+	if !options.IgnoreGitignore {
+		var err error
+		gitignore, err = loadRootGitignore(root)
+		if err != nil {
+			return Discovery{}, err
+		}
 	}
 
 	var discovery Discovery
 
-	err = filepath.WalkDir(root, func(currentPath string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root, func(currentPath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

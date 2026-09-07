@@ -20,6 +20,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 	var token string
 	var dryRun bool
 	var verbose bool
+	var pullRequestContextPath string
 
 	command := &cobra.Command{
 		Use:   "upload <bundle.zip>",
@@ -28,6 +29,14 @@ func newUploadCommand(streams Streams) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			bundlePath := args[0]
+			var pullRequest *upload.PullRequestContext
+			if pullRequestContextPath != "" {
+				var err error
+				pullRequest, err = upload.ReadPullRequestContext(pullRequestContextPath)
+				if err != nil {
+					return err
+				}
+			}
 
 			if dryRun {
 				metadata, err := upload.InspectBundle(bundlePath)
@@ -49,6 +58,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 				BundlePath:    bundlePath,
 				ClientName:    "stackradar-cli",
 				ClientVersion: buildinfo.Current().Version,
+				PullRequest:   pullRequest,
 			})
 			if err != nil {
 				return err
@@ -62,6 +72,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 	command.Flags().StringVar(&token, "token", "", "Upload authentication token; defaults to STACKRADAR_TOKEN")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Validate the bundle and print upload metadata without uploading")
 	command.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose diagnostic output")
+	command.Flags().StringVar(&pullRequestContextPath, "pull-request-context", "", "PR context JSON produced by the trusted StackRadar reusable workflow")
 
 	return command
 }

@@ -82,6 +82,16 @@ stackradar upload stackradar.zip --dry-run
 
 ## Bundle Contents
 
+Trusted PR workflows use `bundle --allow-empty --ignore-gitignore` and
+`upload --pull-request-context <json-file>`. Empty evidence reports removal of
+all dependency files; repository `.gitignore` changes cannot hide evidence.
+The normal directory exclusions and supported dependency filenames still apply.
+The context contains `number`, `head_sha`, `base_sha`, `head_repository_id`
+(a string), and `baseline_eligible_shas` (1–1000 unique commit SHAs). The bundle
+must be clean and match `head_sha`. StackRadar additionally authenticates the
+trusted reusable workflow through OIDC; supplying this file alone grants no trust.
+
+
 Bundles contain:
 
 - discovered dependency manifests and lockfiles

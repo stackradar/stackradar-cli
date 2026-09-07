@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,8 @@ const defaultBundleOutputPath = "stackradar.zip"
 func newBundleCommand(streams Streams) *cobra.Command {
 	var path string
 	var excludes []string
+	var allowEmpty bool
+	var ignoreGitignore bool
 	outputPath := defaultBundleOutputPath
 
 	command := &cobra.Command{
@@ -23,7 +26,7 @@ func newBundleCommand(streams Streams) *cobra.Command {
 		Long:  "Discover dependency manifests and lockfiles, package them into a deterministic zip bundle, and write it locally.",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, args []string) error {
-			discovery, bundle, err := prepareBundle(path, excludes)
+			discovery, bundle, err := prepareBundle(path, excludes, allowEmpty, ignoreGitignore)
 			if err != nil {
 				return err
 			}
@@ -39,16 +42,19 @@ func newBundleCommand(streams Streams) *cobra.Command {
 	command.Flags().StringVar(&path, "path", ".", "Repository path to scan")
 	command.Flags().StringArrayVar(&excludes, "exclude", nil, "Glob pattern to exclude from discovery; repeat for multiple patterns")
 	command.Flags().StringVar(&outputPath, "output", defaultBundleOutputPath, "Path to write the upload bundle zip")
+	command.Flags().BoolVar(&allowEmpty, "allow-empty", false, "Allow an empty bundle to report removal of all dependency files in a PR")
+	command.Flags().BoolVar(&ignoreGitignore, "ignore-gitignore", false, "Do not let repository ignore rules hide dependency evidence in trusted workflows")
 
 	return command
 }
 
-func prepareBundle(root string, excludes []string) (upload.Discovery, upload.Bundle, error) {
+func prepareBundle(root string, excludes []string, allowEmpty bool, ignoreGitignore bool) (upload.Discovery, upload.Bundle, error) {
 	discovery, err := upload.Discover(upload.DiscoverOptions{
-		Root:     root,
-		Excludes: excludes,
+		Root:            root,
+		Excludes:        excludes,
+		IgnoreGitignore: ignoreGitignore,
 	})
-	if err != nil {
+	if err != nil && !(allowEmpty && errors.Is(err, upload.ErrNoDependencyFiles)) {
 		return upload.Discovery{}, upload.Bundle{}, err
 	}
 

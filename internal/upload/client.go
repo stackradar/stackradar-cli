@@ -21,6 +21,7 @@ type UploadOptions struct {
 	ClientName    string
 	ClientVersion string
 	HTTPClient    *http.Client
+	PullRequest   *PullRequestContext
 }
 
 type BundleMetadata struct {
@@ -37,9 +38,11 @@ type UploadResult struct {
 }
 
 type initializeUploadPayload struct {
-	Bundle   initializeBundlePayload   `json:"bundle"`
-	Client   initializeClientPayload   `json:"client"`
-	Manifest initializeManifestPayload `json:"manifest"`
+	Purpose     string                    `json:"purpose,omitempty"`
+	PullRequest *PullRequestContext       `json:"pull_request,omitempty"`
+	Bundle      initializeBundlePayload   `json:"bundle"`
+	Client      initializeClientPayload   `json:"client"`
+	Manifest    initializeManifestPayload `json:"manifest"`
 }
 
 type initializeBundlePayload struct {
@@ -137,6 +140,16 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 			Version: options.ClientVersion,
 		},
 		Manifest: initializeManifestPayload(manifest),
+	}
+	if options.PullRequest != nil {
+		if err := options.PullRequest.Validate(); err != nil {
+			return initializeUploadResponse{}, err
+		}
+		if manifest.Git.CommitSHA == nil || *manifest.Git.CommitSHA != options.PullRequest.HeadSHA || manifest.Git.Dirty == nil || *manifest.Git.Dirty {
+			return initializeUploadResponse{}, fmt.Errorf("PR evidence requires a clean bundle at the trusted workflow head SHA")
+		}
+		payload.Purpose = "pull_request"
+		payload.PullRequest = options.PullRequest
 	}
 
 	body, err := json.Marshal(payload)

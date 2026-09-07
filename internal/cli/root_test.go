@@ -18,6 +18,26 @@ import (
 
 var errWriteFailed = errors.New("write failed")
 
+func TestTrustedBundleHandlesRemovalAndCannotHideFilesWithGitignore(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(t.TempDir(), "evidence.zip")
+	if _, _, err := executeForTest(t, "bundle", "--path", root, "--output", output); !errors.Is(err, upload.ErrNoDependencyFiles) {
+		t.Fatalf("expected empty discovery error, got %v", err)
+	}
+	if _, _, err := executeForTest(t, "bundle", "--path", root, "--output", output, "--allow-empty"); err != nil {
+		t.Fatal(err)
+	}
+	writeCLIFile(t, root, "package.json", "{}\n")
+	writeCLIFile(t, root, ".gitignore", "package.json\n")
+	if _, _, err := executeForTest(t, "bundle", "--path", root, "--output", output); !errors.Is(err, upload.ErrNoDependencyFiles) {
+		t.Fatalf("legacy ignore behavior changed: %v", err)
+	}
+	stdout, _, err := executeForTest(t, "bundle", "--path", root, "--output", output, "--ignore-gitignore")
+	if err != nil || !strings.Contains(stdout, "files: 1") {
+		t.Fatalf("trusted discovery: %s, %v", stdout, err)
+	}
+}
+
 type failingWriter struct{}
 
 func (failingWriter) Write(bytes []byte) (int, error) {
