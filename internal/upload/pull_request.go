@@ -26,7 +26,9 @@ func ReadPullRequestContext(path string) (*PullRequestContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	decoder := json.NewDecoder(io.LimitReader(file, 65537))
 	decoder.DisallowUnknownFields()
 	var context PullRequestContext

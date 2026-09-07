@@ -54,7 +54,7 @@ func prepareBundle(root string, excludes []string, allowEmpty bool, ignoreGitign
 		Excludes:        excludes,
 		IgnoreGitignore: ignoreGitignore,
 	})
-	if err != nil && !(allowEmpty && errors.Is(err, upload.ErrNoDependencyFiles)) {
+	if err != nil && (!allowEmpty || !errors.Is(err, upload.ErrNoDependencyFiles)) {
 		return upload.Discovery{}, upload.Bundle{}, err
 	}
 
