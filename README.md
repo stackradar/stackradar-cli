@@ -82,15 +82,21 @@ stackradar upload stackradar.zip --dry-run
 
 ## Bundle Contents
 
-Trusted PR workflows use `bundle --allow-empty --ignore-gitignore` and
-`upload --pull-request-context <json-file>`. Empty evidence reports removal of
-all dependency files; repository `.gitignore` changes cannot hide evidence.
+Trusted PR workflows use `bundle --allow-empty --commit <head-sha>` and
+`upload --pull-request-context <json-file>`. Commit collection reads Git blobs:
+tracked files matching `.gitignore` are included, and untracked or locally
+modified files cannot change the evidence. Local directory scans still honor
+`.gitignore`. Empty evidence reports dependency-file removal; the server treats
+lost lockfile coverage as inconclusive rather than fixed vulnerabilities.
 The normal directory exclusions and supported dependency filenames still apply.
+Commit bundles also collect workspace metadata and recognized Python requirements
+and constraints files, and carry expected paths plus collection errors.
 The context contains `number`, `head_sha`, `base_sha`, `head_repository_id`
-(a string), and `baseline_eligible_shas` (1–1000 unique commit SHAs). The bundle
-must be clean and match `head_sha`. StackRadar additionally authenticates the
-trusted reusable workflow through OIDC; supplying this file alone grants no trust.
-
+(a string), and `changed_files` entries with `path`, `status` (added, modified,
+removed, renamed), and `previous_path` for renames. The CLI attaches the bundle's
+`collection` coverage to PR initialization. StackRadar authenticates the trusted
+reusable workflow through OIDC and compares affected sources with stored inventory;
+supplying this context file alone grants no trust.
 
 Bundles contain:
 

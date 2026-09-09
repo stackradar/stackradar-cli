@@ -17,7 +17,7 @@ func newBundleCommand(streams Streams) *cobra.Command {
 	var path string
 	var excludes []string
 	var allowEmpty bool
-	var ignoreGitignore bool
+	var commit string
 	outputPath := defaultBundleOutputPath
 
 	command := &cobra.Command{
@@ -26,7 +26,7 @@ func newBundleCommand(streams Streams) *cobra.Command {
 		Long:  "Discover dependency manifests and lockfiles, package them into a deterministic zip bundle, and write it locally.",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, args []string) error {
-			discovery, bundle, err := prepareBundle(path, excludes, allowEmpty, ignoreGitignore)
+			discovery, bundle, err := prepareBundle(path, excludes, allowEmpty, commit)
 			if err != nil {
 				return err
 			}
@@ -43,23 +43,29 @@ func newBundleCommand(streams Streams) *cobra.Command {
 	command.Flags().StringArrayVar(&excludes, "exclude", nil, "Glob pattern to exclude from discovery; repeat for multiple patterns")
 	command.Flags().StringVar(&outputPath, "output", defaultBundleOutputPath, "Path to write the upload bundle zip")
 	command.Flags().BoolVar(&allowEmpty, "allow-empty", false, "Allow an empty bundle to report removal of all dependency files in a PR")
-	command.Flags().BoolVar(&ignoreGitignore, "ignore-gitignore", false, "Do not let repository ignore rules hide dependency evidence in trusted workflows")
+	command.Flags().StringVar(&commit, "commit", "", "Collect committed dependency files from this exact Git commit SHA")
 
 	return command
 }
 
-func prepareBundle(root string, excludes []string, allowEmpty bool, ignoreGitignore bool) (upload.Discovery, upload.Bundle, error) {
-	discovery, err := upload.Discover(upload.DiscoverOptions{
-		Root:            root,
-		Excludes:        excludes,
-		IgnoreGitignore: ignoreGitignore,
-	})
+func prepareBundle(root string, excludes []string, allowEmpty bool, commit string) (upload.Discovery, upload.Bundle, error) {
+	var discovery upload.Discovery
+	var err error
+	if commit != "" {
+		if len(excludes) > 0 {
+			return upload.Discovery{}, upload.Bundle{}, fmt.Errorf("--exclude cannot be used with --commit")
+		}
+		discovery, err = upload.DiscoverCommit(root, commit)
+	} else {
+		discovery, err = upload.Discover(upload.DiscoverOptions{Root: root, Excludes: excludes})
+	}
 	if err != nil && (!allowEmpty || !errors.Is(err, upload.ErrNoDependencyFiles)) {
 		return upload.Discovery{}, upload.Bundle{}, err
 	}
 
 	bundle, err := upload.BuildBundleWithOptions(upload.BuildBundleOptions{
 		Root:          root,
+		Commit:        commit,
 		Files:         discovery.Files,
 		ClientName:    "stackradar-cli",
 		ClientVersion: buildinfo.Version,

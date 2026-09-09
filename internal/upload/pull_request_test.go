@@ -11,7 +11,7 @@ import (
 )
 
 func validPullRequestContext() PullRequestContext {
-	return PullRequestContext{Number: 447, HeadSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("b", 40), HeadRepositoryID: "123", BaselineEligibleSHAs: []string{strings.Repeat("b", 40)}}
+	return PullRequestContext{Number: 447, HeadSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("b", 40), HeadRepositoryID: "123", ChangedFiles: []ChangedFile{{Path: "package.json", Status: "modified"}}}
 }
 
 func TestReadPullRequestContext(t *testing.T) {
@@ -22,7 +22,7 @@ func TestReadPullRequestContext(t *testing.T) {
 		"trailing object": string(valid) + "{}",
 		"unknown field":   strings.Replace(string(valid), "{", `{"unexpected":true,`, 1),
 		"invalid head":    strings.Replace(string(valid), context.HeadSHA, "invalid", 1),
-		"no baseline":     strings.Replace(string(valid), `[`+`"`+context.BaseSHA+`"`+`]`, "[]", 1),
+		"missing changes": strings.Replace(string(valid), `"changed_files":[{"path":"package.json","status":"modified"}]`, `"changed_files":null`, 1),
 		"null":            "null",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -40,9 +40,9 @@ func TestReadPullRequestContext(t *testing.T) {
 			}
 		})
 	}
-	context.BaselineEligibleSHAs = append(context.BaselineEligibleSHAs, context.BaseSHA)
+	context.ChangedFiles[0].Status = "unknown"
 	if context.Validate() == nil {
-		t.Fatal("duplicate baseline was accepted")
+		t.Fatal("invalid changed-file status was accepted")
 	}
 }
 
@@ -54,7 +54,12 @@ func TestInitializePullRequestEvidenceRequiresCleanHeadAndSendsContext(t *testin
 	runGit(t, root, "config", "user.name", "StackRadar Tests")
 	runGit(t, root, "add", ".")
 	runGit(t, root, "commit", "-m", "Fixture")
-	bundle, err := BuildBundle(root, []File{{Path: "package.json", Ecosystem: "npm"}})
+	sha := *gitOutput(root, "rev-parse", "HEAD")
+	discovery, err := DiscoverCommit(root, sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := BuildBundleWithOptions(BuildBundleOptions{Root: root, Commit: sha, Files: discovery.Files})
 	if err != nil {
 		t.Fatal(err)
 	}

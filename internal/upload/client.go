@@ -139,7 +139,7 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 			Name:    options.ClientName,
 			Version: options.ClientVersion,
 		},
-		Manifest: initializeManifestPayload(manifest),
+		Manifest: initializeManifestPayload{SchemaVersion: manifest.SchemaVersion, Git: manifest.Git, FilesCount: manifest.FilesCount, SHA256: manifest.SHA256},
 	}
 	if options.PullRequest != nil {
 		if err := options.PullRequest.Validate(); err != nil {
@@ -149,7 +149,12 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 			return initializeUploadResponse{}, fmt.Errorf("PR evidence requires a clean bundle at the trusted workflow head SHA")
 		}
 		payload.Purpose = "pull_request"
-		payload.PullRequest = options.PullRequest
+		if manifest.Collection == nil {
+			return initializeUploadResponse{}, fmt.Errorf("PR evidence requires a bundle collected with --commit")
+		}
+		context := *options.PullRequest
+		context.Collection = manifest.Collection
+		payload.PullRequest = &context
 	}
 
 	body, err := json.Marshal(payload)

@@ -15,6 +15,7 @@ import (
 const BundleManifestPath = "stackradar-manifest.json"
 
 type BundleManifest struct {
+	Collection    *CollectionCoverage  `json:"collection,omitempty"`
 	SchemaVersion int                  `json:"schema_version"`
 	CLI           BundleManifestCLI    `json:"cli"`
 	Git           BundleManifestGit    `json:"git"`
@@ -41,10 +42,11 @@ type BundleManifestFile struct {
 }
 
 type BundleManifestSummary struct {
-	SchemaVersion int               `json:"schema_version"`
-	Git           BundleManifestGit `json:"git"`
-	FilesCount    int               `json:"files_count"`
-	SHA256        string            `json:"sha256"`
+	Collection    *CollectionCoverage `json:"collection,omitempty"`
+	SchemaVersion int                 `json:"schema_version"`
+	Git           BundleManifestGit   `json:"git"`
+	FilesCount    int                 `json:"files_count"`
+	SHA256        string              `json:"sha256"`
 }
 
 func discoverGitContext(root string) BundleManifestGit {
@@ -114,6 +116,7 @@ func readManifestSummaryFromBundle(bundle []byte) (BundleManifestSummary, error)
 		sum := sha256.Sum256(contents)
 
 		return BundleManifestSummary{
+			Collection:    manifest.Collection,
 			SchemaVersion: manifest.SchemaVersion,
 			Git:           manifest.Git,
 			FilesCount:    len(manifest.Files),

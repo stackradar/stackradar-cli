@@ -22,7 +22,7 @@ release.
 ## Expected Artifacts
 
 For limited-access PR checks, release the CLI containing `--pull-request-context`,
-`--allow-empty`, and `--ignore-gitignore` before enabling the trusted reusable
+`--allow-empty`, and `--commit` before enabling the trusted reusable
 workflow in StackRadar. Use this normal CI release process, not local artifacts.
 
 

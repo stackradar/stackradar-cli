@@ -11,11 +11,12 @@ import (
 // PullRequestContext is supplied by the trusted reusable workflow, not by OIDC.
 // The server validates the workflow identity before trusting the PR head and history.
 type PullRequestContext struct {
-	Number               int      `json:"number"`
-	HeadSHA              string   `json:"head_sha"`
-	BaseSHA              string   `json:"base_sha"`
-	HeadRepositoryID     string   `json:"head_repository_id"`
-	BaselineEligibleSHAs []string `json:"baseline_eligible_shas"`
+	Number           int                 `json:"number"`
+	HeadSHA          string              `json:"head_sha"`
+	BaseSHA          string              `json:"base_sha"`
+	HeadRepositoryID string              `json:"head_repository_id"`
+	ChangedFiles     []ChangedFile       `json:"changed_files"`
+	Collection       *CollectionCoverage `json:"collection,omitempty"`
 }
 
 var commitSHA = regexp.MustCompile(`^[a-f0-9]{40}$`)
@@ -29,7 +30,7 @@ func ReadPullRequestContext(path string) (*PullRequestContext, error) {
 	defer func() {
 		_ = file.Close()
 	}()
-	decoder := json.NewDecoder(io.LimitReader(file, 65537))
+	decoder := json.NewDecoder(io.LimitReader(file, 4194305))
 	decoder.DisallowUnknownFields()
 	var context PullRequestContext
 	if err := decoder.Decode(&context); err != nil {
@@ -49,15 +50,33 @@ func (context *PullRequestContext) Validate() error {
 	if context.Number < 1 || !commitSHA.MatchString(context.HeadSHA) || !commitSHA.MatchString(context.BaseSHA) || !repositoryID.MatchString(context.HeadRepositoryID) {
 		return fmt.Errorf("PR context has invalid repository, PR number, or commit identifiers")
 	}
-	if len(context.BaselineEligibleSHAs) < 1 || len(context.BaselineEligibleSHAs) > 1000 {
-		return fmt.Errorf("PR context must include between 1 and 1000 eligible baseline commits")
+	if context.ChangedFiles == nil || len(context.ChangedFiles) > 10000 {
+		return fmt.Errorf("PR context must include changed files")
 	}
-	seen := make(map[string]bool)
-	for _, sha := range context.BaselineEligibleSHAs {
-		if !commitSHA.MatchString(sha) || seen[sha] {
-			return fmt.Errorf("PR context contains invalid or duplicate baseline commits")
+	for _, file := range context.ChangedFiles {
+		if file.Path == "" {
+			return fmt.Errorf("changed file path is required")
 		}
-		seen[sha] = true
+		switch file.Status {
+		case "added", "modified", "removed", "renamed":
+		default:
+			return fmt.Errorf("invalid changed file status")
+		}
+		if file.Status == "renamed" && file.PreviousPath == "" {
+			return fmt.Errorf("renamed file requires previous path")
+		}
 	}
 	return nil
+}
+
+type ChangedFile struct {
+	Path         string `json:"path"`
+	Status       string `json:"status"`
+	PreviousPath string `json:"previous_path,omitempty"`
+}
+
+type CollectionCoverage struct {
+	Complete bool     `json:"complete"`
+	Paths    []string `json:"paths"`
+	Errors   []string `json:"errors"`
 }

@@ -25,6 +25,7 @@ var zipModifiedTime = time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 type BuildBundleOptions struct {
 	Root          string
+	Commit        string
 	Files         []File
 	ClientName    string
 	ClientVersion string
@@ -58,13 +59,34 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 		return sortedFiles[left].Path < sortedFiles[right].Path
 	})
 
+	var collection *CollectionCoverage
+	if options.Commit != "" {
+		if !commitSHA.MatchString(options.Commit) {
+			return Bundle{}, fmt.Errorf("commit must be an exact Git SHA")
+		}
+		collection = &CollectionCoverage{Complete: true, Paths: []string{}, Errors: []string{}}
+	}
+	collectedFiles := make([]File, 0, len(sortedFiles))
 	manifestFiles := make([]BundleManifestFile, 0, len(sortedFiles))
 	fileContents := make(map[string][]byte, len(sortedFiles))
 	for _, file := range sortedFiles {
-		contents, err := readBundleFile(root, file)
-		if err != nil {
-			return Bundle{}, err
+		var contents []byte
+		var err error
+		if collection != nil {
+			collection.Paths = append(collection.Paths, file.Path)
+			contents, err = readCommitFile(root, file)
+		} else {
+			contents, err = readBundleFile(root, file)
 		}
+		if err != nil {
+			if collection == nil {
+				return Bundle{}, err
+			}
+			collection.Complete = false
+			collection.Errors = append(collection.Errors, "Could not collect committed dependency file: "+file.Path)
+			continue
+		}
+		collectedFiles = append(collectedFiles, file)
 
 		sum := sha256.Sum256(contents)
 		fileContents[file.Path] = contents
@@ -76,13 +98,19 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 		})
 	}
 
+	gitContext := discoverGitContext(root)
+	if options.Commit != "" {
+		clean := false
+		gitContext = BundleManifestGit{CommitSHA: &options.Commit, Dirty: &clean}
+	}
 	manifest := BundleManifest{
+		Collection:    collection,
 		SchemaVersion: 1,
 		CLI: BundleManifestCLI{
 			Name:    clientName,
 			Version: clientVersion,
 		},
-		Git:   discoverGitContext(root),
+		Git:   gitContext,
 		Files: manifestFiles,
 	}
 	manifestBytes, err := json.Marshal(manifest)
@@ -94,7 +122,7 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
 
-	for _, file := range sortedFiles {
+	for _, file := range collectedFiles {
 		if err := addBundleEntry(writer, file.Path, fileContents[file.Path]); err != nil {
 			closeErr := writer.Close()
 			if closeErr != nil {
@@ -125,7 +153,7 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 		Bytes:     bytes,
 		SizeBytes: int64(len(bytes)),
 		SHA256:    hex.EncodeToString(sum[:]),
-		Files:     sortedFiles,
+		Files:     collectedFiles,
 		Manifest:  manifest,
 	}, nil
 }
