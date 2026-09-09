@@ -19,6 +19,8 @@ OIDC when uploading, and then delegates to this CLI.
 Download the latest archive from
 [GitHub Releases](https://github.com/stackradar/stackradar-cli/releases).
 
+The macOS archives require macOS 13 Ventura or later.
+
 On macOS and Linux:
 
 ```sh
