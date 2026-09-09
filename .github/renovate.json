@@ -29,7 +29,10 @@
       "matchManagers": [
         "gomod"
       ],
-      "groupName": "Go modules"
+      "groupName": "Go modules",
+      "postUpdateOptions": [
+        "gomodTidy"
+      ]
     },
     {
       "description": "Group release tool version updates extracted by regex managers.",
