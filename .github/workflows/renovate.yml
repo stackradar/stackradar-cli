@@ -30,7 +30,7 @@ jobs:
       # Renovate's action builds this as <image>:<version>, so keep the
       # version in tag@digest form and let Renovate update both together.
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682 # v46.2.2
+        uses: renovatebot/github-action@37beffda261423addd537c33f2d126df7f6ffbab # v46.2.6
         with:
           configurationFile: .github/renovate-runner.json
           token: ${{ steps.get_token.outputs.token }}
