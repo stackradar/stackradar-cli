@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 	var token string
 	var dryRun bool
 	var verbose bool
+	var contextFile string
 
 	command := &cobra.Command{
 		Use:   "upload <bundle.zip>",
@@ -28,6 +30,20 @@ func newUploadCommand(streams Streams) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			bundlePath := args[0]
+			var uploadContext *upload.UploadContext
+
+			if contextFile != "" {
+				contents, err := os.ReadFile(contextFile)
+				if err != nil {
+					return err
+				}
+
+				var decoded upload.UploadContext
+				if err := json.Unmarshal(contents, &decoded); err != nil {
+					return fmt.Errorf("decode upload context: %w", err)
+				}
+				uploadContext = &decoded
+			}
 
 			if dryRun {
 				metadata, err := upload.InspectBundle(bundlePath)
@@ -49,6 +65,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 				BundlePath:    bundlePath,
 				ClientName:    "stackradar-cli",
 				ClientVersion: buildinfo.Current().Version,
+				Context:       uploadContext,
 			})
 			if err != nil {
 				return err
@@ -62,6 +79,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 	command.Flags().StringVar(&token, "token", "", "Upload authentication token; defaults to STACKRADAR_TOKEN")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Validate the bundle and print upload metadata without uploading")
 	command.Flags().BoolVar(&verbose, "verbose", false, "Enable verbose diagnostic output")
+	command.Flags().StringVar(&contextFile, "context-file", "", "Path to additional upload context JSON")
 
 	return command
 }

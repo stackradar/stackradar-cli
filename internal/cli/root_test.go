@@ -100,7 +100,7 @@ func TestUploadCommandExposesPlannedFlags(t *testing.T) {
 		t.Fatalf("expected no stderr, got %q", stderr)
 	}
 
-	for _, expected := range []string{"<bundle.zip>", "--api-url", "--dry-run", "--token", "--verbose"} {
+	for _, expected := range []string{"<bundle.zip>", "--api-url", "--context-file", "--dry-run", "--token", "--verbose"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected upload help output to contain %q, got %q", expected, stdout)
 		}
@@ -124,7 +124,7 @@ func TestBundleCommandExposesPlannedFlags(t *testing.T) {
 		t.Fatalf("expected no stderr, got %q", stderr)
 	}
 
-	for _, expected := range []string{"--path", "--exclude", "--output"} {
+	for _, expected := range []string{"--path", "--exclude", "--output", "--allow-empty"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected bundle help output to contain %q, got %q", expected, stdout)
 		}

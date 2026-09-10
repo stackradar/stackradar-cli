@@ -15,6 +15,7 @@ const defaultBundleOutputPath = "stackradar.zip"
 func newBundleCommand(streams Streams) *cobra.Command {
 	var path string
 	var excludes []string
+	var allowEmpty bool
 	outputPath := defaultBundleOutputPath
 
 	command := &cobra.Command{
@@ -23,7 +24,7 @@ func newBundleCommand(streams Streams) *cobra.Command {
 		Long:  "Discover dependency manifests and lockfiles, package them into a deterministic zip bundle, and write it locally.",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, args []string) error {
-			discovery, bundle, err := prepareBundle(path, excludes)
+			discovery, bundle, err := prepareBundle(path, excludes, allowEmpty)
 			if err != nil {
 				return err
 			}
@@ -39,14 +40,16 @@ func newBundleCommand(streams Streams) *cobra.Command {
 	command.Flags().StringVar(&path, "path", ".", "Repository path to scan")
 	command.Flags().StringArrayVar(&excludes, "exclude", nil, "Glob pattern to exclude from discovery; repeat for multiple patterns")
 	command.Flags().StringVar(&outputPath, "output", defaultBundleOutputPath, "Path to write the upload bundle zip")
+	command.Flags().BoolVar(&allowEmpty, "allow-empty", false, "Create a manifest-only bundle when no dependency files are present")
 
 	return command
 }
 
-func prepareBundle(root string, excludes []string) (upload.Discovery, upload.Bundle, error) {
+func prepareBundle(root string, excludes []string, allowEmpty bool) (upload.Discovery, upload.Bundle, error) {
 	discovery, err := upload.Discover(upload.DiscoverOptions{
-		Root:     root,
-		Excludes: excludes,
+		Root:       root,
+		Excludes:   excludes,
+		AllowEmpty: allowEmpty,
 	})
 	if err != nil {
 		return upload.Discovery{}, upload.Bundle{}, err

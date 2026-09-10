@@ -15,8 +15,9 @@ import (
 var ErrNoDependencyFiles = errors.New("no supported dependency files found")
 
 type DiscoverOptions struct {
-	Root     string
-	Excludes []string
+	Root       string
+	Excludes   []string
+	AllowEmpty bool
 }
 
 type Discovery struct {
@@ -184,7 +185,7 @@ func Discover(options DiscoverOptions) (Discovery, error) {
 		return discovery.SkippedDirectories[left].Path < discovery.SkippedDirectories[right].Path
 	})
 
-	if len(discovery.Files) == 0 {
+	if len(discovery.Files) == 0 && !options.AllowEmpty {
 		return discovery, ErrNoDependencyFiles
 	}
 

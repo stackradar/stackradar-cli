@@ -31,6 +31,7 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 	var serverURL string
 	initCalled := false
 	storeCalled := false
+	previousPath := "package-lock.old.json"
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -72,6 +73,12 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 			}
 			if payload.Manifest.SHA256 == "" {
 				t.Fatal("expected manifest sha256 to be populated")
+			}
+			if payload.Purpose != "pull_request" || payload.PullRequest == nil {
+				t.Fatalf("pull request context = %#v, want attached context", payload.PullRequest)
+			}
+			if payload.PullRequest.Changes[0].PreviousPath == nil || *payload.PullRequest.Changes[0].PreviousPath != previousPath {
+				t.Fatalf("previous path = %#v, want %q", payload.PullRequest.Changes[0].PreviousPath, previousPath)
 			}
 
 			writer.Header().Set("Content-Type", "application/json")
@@ -125,9 +132,17 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 	serverURL = server.URL
 
 	result, err := UploadBundle(UploadOptions{
-		APIURL:        server.URL,
-		Token:         "secret-token",
-		BundlePath:    bundlePath,
+		APIURL:     server.URL,
+		Token:      "secret-token",
+		BundlePath: bundlePath,
+		Context: &UploadContext{
+			Purpose: "pull_request",
+			PullRequest: &PullRequestUploadContext{
+				Number:     42,
+				Changes:    []PullRequestFileChange{{Path: "package-lock.json", PreviousPath: &previousPath, Status: "renamed"}},
+				Collection: PullRequestCollectionContext{Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}},
+			},
+		},
 		ClientName:    "stackradar-cli",
 		ClientVersion: "dev",
 		HTTPClient:    server.Client(),
