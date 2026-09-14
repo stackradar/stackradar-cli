@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -167,6 +168,57 @@ func TestBuildBundleManifestMarksCleanGitCheckoutNotDirty(t *testing.T) {
 	}
 	if *manifest.Git.Dirty {
 		t.Fatal("expected clean git checkout to set dirty to false, got true")
+	}
+}
+
+func TestBuildBundleUsesRepositoryRelativePathsAndGitContextForScopedScan(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	scanRoot := filepath.Join(repositoryRoot, "packages", "web")
+	writeTestFile(t, repositoryRoot, "packages/web/pnpm-lock.yaml", "lockfileVersion: 9\n")
+	runGit(t, repositoryRoot, "init")
+	runGit(t, repositoryRoot, "config", "user.email", "tests@stackradar.com")
+	runGit(t, repositoryRoot, "config", "user.name", "StackRadar Tests")
+	runGit(t, repositoryRoot, "add", "packages/web/pnpm-lock.yaml")
+	runGit(t, repositoryRoot, "commit", "-m", "Add scoped lockfile")
+
+	bundle, err := BuildBundleWithOptions(BuildBundleOptions{
+		Root:           scanRoot,
+		RepositoryRoot: repositoryRoot,
+		Files:          []File{{Path: "pnpm-lock.yaml", Ecosystem: "npm"}},
+	})
+
+	if err != nil {
+		t.Fatalf("expected scoped bundle build to succeed, got %v", err)
+	}
+
+	entries := readZipEntries(t, bundle.Bytes)
+	if entries["packages/web/pnpm-lock.yaml"] != "lockfileVersion: 9\n" {
+		t.Fatalf("repository-relative bundle entry missing, got %#v", entries)
+	}
+	if _, ok := entries["pnpm-lock.yaml"]; ok {
+		t.Fatal("bundle unexpectedly used a scan-root-relative path")
+	}
+	if len(bundle.Manifest.Files) != 1 || bundle.Manifest.Files[0].Path != "packages/web/pnpm-lock.yaml" {
+		t.Fatalf("manifest files = %#v, want repository-relative scoped path", bundle.Manifest.Files)
+	}
+	if bundle.Manifest.Git.CommitSHA == nil {
+		t.Fatal("expected repository commit SHA in scoped bundle manifest")
+	}
+}
+
+func TestBuildBundleRejectsScanPathOutsideRepositoryRoot(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	scanRoot := t.TempDir()
+	writeTestFile(t, scanRoot, "package-lock.json", "{}")
+
+	_, err := BuildBundleWithOptions(BuildBundleOptions{
+		Root:           scanRoot,
+		RepositoryRoot: repositoryRoot,
+		Files:          []File{{Path: "package-lock.json", Ecosystem: "npm"}},
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "outside repository root") {
+		t.Fatalf("expected outside-root error, got %v", err)
 	}
 }
 
