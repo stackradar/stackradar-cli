@@ -124,7 +124,7 @@ func TestBundleCommandExposesPlannedFlags(t *testing.T) {
 		t.Fatalf("expected no stderr, got %q", stderr)
 	}
 
-	for _, expected := range []string{"--path", "--exclude", "--output", "--allow-empty"} {
+	for _, expected := range []string{"--path", "--repository-root", "--exclude", "--output", "--allow-empty"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected bundle help output to contain %q, got %q", expected, stdout)
 		}

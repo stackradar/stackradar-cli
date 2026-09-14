@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -24,10 +26,11 @@ type Bundle struct {
 var zipModifiedTime = time.Date(1980, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 type BuildBundleOptions struct {
-	Root          string
-	Files         []File
-	ClientName    string
-	ClientVersion string
+	Root           string
+	RepositoryRoot string
+	Files          []File
+	ClientName     string
+	ClientVersion  string
 }
 
 func BuildBundle(root string, files []File) (Bundle, error) {
@@ -52,6 +55,14 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 	if clientVersion == "" {
 		clientVersion = "dev"
 	}
+	repositoryRoot := options.RepositoryRoot
+	if repositoryRoot == "" {
+		repositoryRoot = root
+	}
+	pathPrefix, err := repositoryPathPrefix(root, repositoryRoot)
+	if err != nil {
+		return Bundle{}, err
+	}
 
 	sortedFiles := append([]File(nil), options.Files...)
 	sort.Slice(sortedFiles, func(left int, right int) bool {
@@ -59,6 +70,7 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 	})
 
 	manifestFiles := make([]BundleManifestFile, 0, len(sortedFiles))
+	canonicalFiles := make([]File, 0, len(sortedFiles))
 	fileContents := make(map[string][]byte, len(sortedFiles))
 	for _, file := range sortedFiles {
 		contents, err := readBundleFile(root, file)
@@ -67,9 +79,18 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 		}
 
 		sum := sha256.Sum256(contents)
-		fileContents[file.Path] = contents
+		canonicalPath := file.Path
+		if pathPrefix != "" {
+			canonicalPath = path.Join(pathPrefix, file.Path)
+		}
+		fileContents[canonicalPath] = contents
+		canonicalFiles = append(canonicalFiles, File{
+			Path:      canonicalPath,
+			Ecosystem: file.Ecosystem,
+			SizeBytes: file.SizeBytes,
+		})
 		manifestFiles = append(manifestFiles, BundleManifestFile{
-			Path:      file.Path,
+			Path:      canonicalPath,
 			Ecosystem: file.Ecosystem,
 			SizeBytes: int64(len(contents)),
 			SHA256:    hex.EncodeToString(sum[:]),
@@ -82,7 +103,7 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 			Name:    clientName,
 			Version: clientVersion,
 		},
-		Git:   discoverGitContext(root),
+		Git:   discoverGitContext(repositoryRoot),
 		Files: manifestFiles,
 	}
 	manifestBytes, err := json.Marshal(manifest)
@@ -94,7 +115,7 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
 
-	for _, file := range sortedFiles {
+	for _, file := range canonicalFiles {
 		if err := addBundleEntry(writer, file.Path, fileContents[file.Path]); err != nil {
 			closeErr := writer.Close()
 			if closeErr != nil {
@@ -125,9 +146,32 @@ func BuildBundleWithOptions(options BuildBundleOptions) (Bundle, error) {
 		Bytes:     bytes,
 		SizeBytes: int64(len(bytes)),
 		SHA256:    hex.EncodeToString(sum[:]),
-		Files:     sortedFiles,
+		Files:     canonicalFiles,
 		Manifest:  manifest,
 	}, nil
+}
+
+func repositoryPathPrefix(root string, repositoryRoot string) (string, error) {
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	absoluteRepositoryRoot, err := filepath.Abs(repositoryRoot)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(absoluteRepositoryRoot, absoluteRoot)
+	if err != nil {
+		return "", err
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("bundle path %q is outside repository root %q", root, repositoryRoot)
+	}
+	if relative == "." {
+		return "", nil
+	}
+
+	return filepath.ToSlash(relative), nil
 }
 
 func readBundleFile(root string, file File) ([]byte, error) {
