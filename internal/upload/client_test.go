@@ -77,6 +77,9 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 			if payload.Purpose != "pull_request" || payload.PullRequest == nil {
 				t.Fatalf("pull request context = %#v, want attached context", payload.PullRequest)
 			}
+			if payload.Collection == nil || payload.Collection.Scope != "." || len(payload.Collection.ExpectedPaths) != 1 {
+				t.Fatalf("collection context = %#v, want scoped inventory contract", payload.Collection)
+			}
 			if payload.PullRequest.Changes[0].PreviousPath == nil || *payload.PullRequest.Changes[0].PreviousPath != previousPath {
 				t.Fatalf("previous path = %#v, want %q", payload.PullRequest.Changes[0].PreviousPath, previousPath)
 			}
@@ -137,10 +140,13 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 		BundlePath: bundlePath,
 		Context: &UploadContext{
 			Purpose: "pull_request",
+			Collection: &CollectionContext{
+				Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}, Scope: ".",
+			},
 			PullRequest: &PullRequestUploadContext{
 				Number:     42,
 				Changes:    []PullRequestFileChange{{Path: "package-lock.json", PreviousPath: &previousPath, Status: "renamed"}},
-				Collection: PullRequestCollectionContext{Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}},
+				Collection: CollectionContext{Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}, Scope: "."},
 			},
 		},
 		ClientName:    "stackradar-cli",

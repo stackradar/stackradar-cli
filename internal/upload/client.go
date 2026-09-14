@@ -26,20 +26,21 @@ type UploadOptions struct {
 
 type UploadContext struct {
 	Purpose     string                    `json:"purpose"`
+	Collection  *CollectionContext        `json:"collection,omitempty"`
 	PullRequest *PullRequestUploadContext `json:"pull_request,omitempty"`
 }
 
 type PullRequestUploadContext struct {
-	Number           int                          `json:"number"`
-	URL              string                       `json:"url"`
-	HeadSHA          string                       `json:"head_sha"`
-	HeadRef          string                       `json:"head_ref"`
-	HeadRepositoryID string                       `json:"head_repository_id"`
-	BaseSHA          string                       `json:"base_sha"`
-	BaseRef          string                       `json:"base_ref"`
-	DefaultBranch    string                       `json:"default_branch"`
-	Changes          []PullRequestFileChange      `json:"changes"`
-	Collection       PullRequestCollectionContext `json:"collection"`
+	Number           int                     `json:"number"`
+	URL              string                  `json:"url"`
+	HeadSHA          string                  `json:"head_sha"`
+	HeadRef          string                  `json:"head_ref"`
+	HeadRepositoryID string                  `json:"head_repository_id"`
+	BaseSHA          string                  `json:"base_sha"`
+	BaseRef          string                  `json:"base_ref"`
+	DefaultBranch    string                  `json:"default_branch"`
+	Changes          []PullRequestFileChange `json:"changes"`
+	Collection       CollectionContext       `json:"collection"`
 }
 
 type PullRequestFileChange struct {
@@ -48,10 +49,11 @@ type PullRequestFileChange struct {
 	Status       string  `json:"status"`
 }
 
-type PullRequestCollectionContext struct {
+type CollectionContext struct {
 	Complete      bool     `json:"complete"`
 	ExpectedPaths []string `json:"expected_paths"`
 	Errors        []string `json:"errors"`
+	Scope         string   `json:"scope"`
 }
 
 type BundleMetadata struct {
@@ -72,6 +74,7 @@ type initializeUploadPayload struct {
 	Client      initializeClientPayload   `json:"client"`
 	Manifest    initializeManifestPayload `json:"manifest"`
 	Purpose     string                    `json:"purpose,omitempty"`
+	Collection  *CollectionContext        `json:"collection,omitempty"`
 	PullRequest *PullRequestUploadContext `json:"pull_request,omitempty"`
 }
 
@@ -173,6 +176,7 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 	}
 	if options.Context != nil {
 		payload.Purpose = options.Context.Purpose
+		payload.Collection = options.Context.Collection
 		payload.PullRequest = options.Context.PullRequest
 	}
 
