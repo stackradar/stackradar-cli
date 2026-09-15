@@ -32,6 +32,7 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 	initCalled := false
 	storeCalled := false
 	previousPath := "package-lock.old.json"
+	mergeCommitObject := "dHJ1c3RlZCBtZXJnZSBjb21taXQ="
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
@@ -82,6 +83,9 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 			}
 			if payload.PullRequest.Changes[0].PreviousPath == nil || *payload.PullRequest.Changes[0].PreviousPath != previousPath {
 				t.Fatalf("previous path = %#v, want %q", payload.PullRequest.Changes[0].PreviousPath, previousPath)
+			}
+			if payload.PullRequest.MergeCommit == nil || payload.PullRequest.MergeCommit.ObjectBase64 != mergeCommitObject {
+				t.Fatalf("merge commit = %#v, want forwarded proof", payload.PullRequest.MergeCommit)
 			}
 
 			writer.Header().Set("Content-Type", "application/json")
@@ -144,9 +148,10 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 				Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}, Scope: ".",
 			},
 			PullRequest: &PullRequestUploadContext{
-				Number:     42,
-				Changes:    []PullRequestFileChange{{Path: "package-lock.json", PreviousPath: &previousPath, Status: "renamed"}},
-				Collection: CollectionContext{Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}, Scope: "."},
+				Number:      42,
+				Changes:     []PullRequestFileChange{{Path: "package-lock.json", PreviousPath: &previousPath, Status: "renamed"}},
+				MergeCommit: &PullRequestMergeCommit{ObjectBase64: mergeCommitObject},
+				Collection:  CollectionContext{Complete: true, ExpectedPaths: []string{"package.json"}, Errors: []string{}, Scope: "."},
 			},
 		},
 		ClientName:    "stackradar-cli",

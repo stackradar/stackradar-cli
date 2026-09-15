@@ -40,7 +40,12 @@ type PullRequestUploadContext struct {
 	BaseRef          string                  `json:"base_ref"`
 	DefaultBranch    string                  `json:"default_branch"`
 	Changes          []PullRequestFileChange `json:"changes"`
+	MergeCommit      *PullRequestMergeCommit `json:"merge_commit,omitempty"`
 	Collection       CollectionContext       `json:"collection"`
+}
+
+type PullRequestMergeCommit struct {
+	ObjectBase64 string `json:"object_base64"`
 }
 
 type PullRequestFileChange struct {
