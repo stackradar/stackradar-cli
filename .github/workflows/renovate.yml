@@ -35,6 +35,6 @@ jobs:
           configurationFile: .github/renovate-runner.json
           token: ${{ steps.get_token.outputs.token }}
           renovate-image: "ghcr.io/renovatebot/renovate"
-          renovate-version: "44@sha256:5fc395493cd578a6e465db011331ba9ccf117a512f9e0ba643bbe8ca62932316"
+          renovate-version: "44@sha256:7b16cfd99c2bc380317f13b36ce42858def2d6aefbbb0fb60104b2f05c7f1103"
         env:
           LOG_LEVEL: info
