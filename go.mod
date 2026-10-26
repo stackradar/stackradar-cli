@@ -2,7 +2,7 @@ module github.com/stackradar/stackradar-cli
 
 go 1.26
 
-toolchain go1.27.1
+toolchain go1.27.3
 
 require github.com/spf13/cobra v1.10.2
 
