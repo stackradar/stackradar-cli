@@ -85,6 +85,8 @@ stackradar upload stackradar.zip --dry-run
 Bundles contain:
 
 - discovered dependency manifests and lockfiles
+- `.nvmrc` and `.node-version` files in directories that also hold an npm
+  manifest or lockfile
 - `stackradar-manifest.json`, including CLI metadata, git commit/ref/branch
   context when available, clean/dirty git state when available, and per-file
   SHA-256 digests
