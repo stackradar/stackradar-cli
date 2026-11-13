@@ -133,6 +133,47 @@ func TestDiscoverHonorsRootGitignorePatterns(t *testing.T) {
 	}
 }
 
+func TestDiscoverIncludesNodeVersionFilesBesideNPMProjects(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "package.json", "{}")
+	writeTestFile(t, root, ".nvmrc", "22\n")
+	writeTestFile(t, root, "apps/web/package-lock.json", "{}")
+	writeTestFile(t, root, "apps/web/.node-version", "22.11.0\n")
+	writeTestFile(t, root, "apps/api/composer.json", "{}")
+	writeTestFile(t, root, "apps/api/.nvmrc", "20\n")
+	writeTestFile(t, root, "tools/.node-version", "20\n")
+
+	discovery, err := Discover(DiscoverOptions{Root: root})
+
+	if err != nil {
+		t.Fatalf("expected discovery to succeed, got %v", err)
+	}
+
+	got := pathsByEcosystem(discovery.Files)
+	want := map[string]string{
+		".nvmrc":                     "npm",
+		"apps/api/composer.json":     "composer",
+		"apps/web/.node-version":     "npm",
+		"apps/web/package-lock.json": "npm",
+		"package.json":               "npm",
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("discovered files = %#v, want %#v", got, want)
+	}
+}
+
+func TestDiscoverDoesNotUploadANodeVersionFileAlone(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, ".nvmrc", "22\n")
+
+	_, err := Discover(DiscoverOptions{Root: root})
+
+	if !errors.Is(err, ErrNoDependencyFiles) {
+		t.Fatalf("expected ErrNoDependencyFiles, got %v", err)
+	}
+}
+
 func TestDiscoverReturnsNoDependencyFilesError(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "README.md", "# ignored\n")

@@ -70,6 +70,13 @@ var supportedFileEcosystems = map[string]string{
 	"yarn.lock":            "npm",
 }
 
+// nodeVersionFileNames pin the Node.js version of the npm project in the same
+// directory. They are uploaded only beside an npm manifest or lockfile.
+var nodeVersionFileNames = map[string]struct{}{
+	".node-version": {},
+	".nvmrc":        {},
+}
+
 func Discover(options DiscoverOptions) (Discovery, error) {
 	root := options.Root
 	if root == "" {
@@ -88,6 +95,7 @@ func Discover(options DiscoverOptions) (Discovery, error) {
 	}
 
 	var discovery Discovery
+	var nodeVersionFiles []File
 
 	err = filepath.WalkDir(root, func(currentPath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -155,14 +163,25 @@ func Discover(options DiscoverOptions) (Discovery, error) {
 			return nil
 		}
 
+		_, isNodeVersionFile := nodeVersionFileNames[entry.Name()]
 		ecosystem, supported := supportedFileEcosystems[entry.Name()]
-		if !supported {
+		if !supported && !isNodeVersionFile {
 			return nil
 		}
 
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+
+		if isNodeVersionFile {
+			nodeVersionFiles = append(nodeVersionFiles, File{
+				Path:      relativePath,
+				Ecosystem: "npm",
+				SizeBytes: info.Size(),
+			})
+
+			return nil
 		}
 
 		discovery.Files = append(discovery.Files, File{
@@ -178,6 +197,8 @@ func Discover(options DiscoverOptions) (Discovery, error) {
 		return Discovery{}, err
 	}
 
+	discovery.Files = append(discovery.Files, filesBesideNPMProjects(nodeVersionFiles, discovery.Files)...)
+
 	sort.Slice(discovery.Files, func(left int, right int) bool {
 		return discovery.Files[left].Path < discovery.Files[right].Path
 	})
@@ -190,6 +211,28 @@ func Discover(options DiscoverOptions) (Discovery, error) {
 	}
 
 	return discovery, nil
+}
+
+// filesBesideNPMProjects keeps the candidates whose directory holds an npm
+// manifest or lockfile, so a version file never makes an upload on its own.
+func filesBesideNPMProjects(candidates []File, files []File) []File {
+	npmDirectories := make(map[string]struct{})
+
+	for _, file := range files {
+		if file.Ecosystem == "npm" {
+			npmDirectories[path.Dir(file.Path)] = struct{}{}
+		}
+	}
+
+	var kept []File
+
+	for _, candidate := range candidates {
+		if _, ok := npmDirectories[path.Dir(candidate.Path)]; ok {
+			kept = append(kept, candidate)
+		}
+	}
+
+	return kept
 }
 
 func validateExcludePatterns(patterns []string) error {
