@@ -22,7 +22,7 @@ func newBundleCommand(streams Streams) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "bundle",
 		Short: "Bundle dependency evidence without uploading it",
-		Long:  "Discover dependency manifests and lockfiles, package them into a deterministic zip bundle, and write it locally.",
+		Long:  "Discover dependency manifests, lockfiles and Node.js version files, package them into a deterministic zip bundle, and write it locally.",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, args []string) error {
 			discovery, bundle, err := prepareBundle(path, repositoryRoot, excludes, allowEmpty)
