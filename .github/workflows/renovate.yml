@@ -14,7 +14,7 @@ env:
 jobs:
   renovate:
     name: Renovate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.repository == 'stackradar/stackradar-cli'
     steps:
       - name: Get token
