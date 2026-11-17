@@ -9,6 +9,7 @@
   "labels": [
     "dependencies"
   ],
+  "minimumReleaseAge": "7 days",
   "packageRules": [
     {
       "description": "Keep the SLSA generator reusable workflow tag-pinned for slsa-verifier compatibility.",
