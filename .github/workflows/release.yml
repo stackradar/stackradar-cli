@@ -15,7 +15,7 @@ env:
 jobs:
   release-preflight:
     name: Release Preflight
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       contents: read
@@ -66,7 +66,7 @@ jobs:
     name: Release
     needs:
       - release-preflight
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       id-token: write
@@ -153,7 +153,7 @@ jobs:
     needs:
       - release
       - provenance
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
       attestations: read
@@ -285,7 +285,7 @@ jobs:
     name: Publish Release
     needs:
       - verify-draft
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
