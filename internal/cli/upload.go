@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/stackradar/stackradar-cli/internal/buildinfo"
 	"github.com/stackradar/stackradar-cli/internal/upload"
 )
 
-const uploadTokenEnv = "STACKRADAR_TOKEN"
+const (
+	uploadTokenEnv       = "STACKRADAR_TOKEN"
+	integrationEnv       = "STACKRADAR_INTEGRATION"
+	maxIntegrationLength = 200
+)
 
 var ErrUploadTokenRequired = errors.New("upload token is required; pass --token or set STACKRADAR_TOKEN")
 
@@ -65,6 +70,7 @@ func newUploadCommand(streams Streams) *cobra.Command {
 				BundlePath:    bundlePath,
 				ClientName:    "stackradar-cli",
 				ClientVersion: buildinfo.Current().Version,
+				Integration:   resolveIntegration(),
 				Context:       uploadContext,
 			})
 			if err != nil {
@@ -95,6 +101,16 @@ func resolveUploadToken(flagToken string) (string, error) {
 	}
 
 	return "", ErrUploadTokenRequired
+}
+
+// resolveIntegration reads the name of the wrapper that ran the CLI, if any.
+func resolveIntegration() string {
+	integration := []rune(strings.TrimSpace(os.Getenv(integrationEnv)))
+	if len(integration) > maxIntegrationLength {
+		integration = integration[:maxIntegrationLength]
+	}
+
+	return string(integration)
 }
 
 func writeUploadReport(writer io.Writer, result upload.UploadResult) error {

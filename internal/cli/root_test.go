@@ -159,7 +159,7 @@ func TestUploadCommandRequiresToken(t *testing.T) {
 func TestUploadCommandUploadsBundleWithTokenFlag(t *testing.T) {
 	bundlePath := filepath.Join(t.TempDir(), "stackradar-upload.zip")
 	writeUploadBundleForCLITest(t, bundlePath)
-	server := newUploadCommandTestServer(t, "flag-token")
+	server, _ := newUploadCommandTestServer(t, "flag-token")
 
 	stdout, stderr, err := executeForTest(t, "upload", bundlePath, "--token", "flag-token", "--api-url", server.URL)
 
@@ -192,7 +192,7 @@ func TestUploadCommandUploadsBundleWithTokenEnvironmentVariable(t *testing.T) {
 
 	bundlePath := filepath.Join(t.TempDir(), "stackradar-upload.zip")
 	writeUploadBundleForCLITest(t, bundlePath)
-	server := newUploadCommandTestServer(t, "env-token")
+	server, _ := newUploadCommandTestServer(t, "env-token")
 
 	stdout, stderr, err := executeForTest(t, "upload", bundlePath, "--api-url", server.URL)
 
@@ -210,6 +210,43 @@ func TestUploadCommandUploadsBundleWithTokenEnvironmentVariable(t *testing.T) {
 
 	if strings.Contains(stdout, "env-token") || strings.Contains(stderr, "env-token") {
 		t.Fatalf("expected output not to contain the token, got stdout %q stderr %q", stdout, stderr)
+	}
+}
+
+func TestUploadCommandSendsIntegrationFromEnvironment(t *testing.T) {
+	long := strings.Repeat("é", 250)
+
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  any
+	}{
+		{name: "trimmed", value: "  stackradar-action@v1\n", want: "stackradar-action@v1"},
+		{name: "truncated", value: long, want: long[:len("é")*200]},
+		{name: "blank", value: "   ", want: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(integrationEnv, tc.value)
+
+			bundlePath := filepath.Join(t.TempDir(), "stackradar-upload.zip")
+			writeUploadBundleForCLITest(t, bundlePath)
+			server, client := newUploadCommandTestServer(t, "flag-token")
+
+			if _, stderr, err := executeForTest(t, "upload", bundlePath, "--token", "flag-token", "--api-url", server.URL); err != nil {
+				t.Fatalf("expected upload command to succeed, got %v (stderr %q)", err, stderr)
+			}
+
+			got, ok := client()["integration"]
+			if tc.want == nil {
+				if ok {
+					t.Fatalf("client integration = %#v, want it omitted", got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("client integration = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -428,10 +465,11 @@ func readZipFileEntries(t *testing.T, zipPath string) map[string]string {
 	return result
 }
 
-func newUploadCommandTestServer(t *testing.T, expectedToken string) *httptest.Server {
+func newUploadCommandTestServer(t *testing.T, expectedToken string) (*httptest.Server, func() map[string]any) {
 	t.Helper()
 
 	var serverURL string
+	var client map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/api/ingestions/evidence-uploads":
@@ -459,6 +497,7 @@ func newUploadCommandTestServer(t *testing.T, expectedToken string) *httptest.Se
 			if manifest["files_count"] != float64(1) {
 				t.Fatalf("manifest files count = %#v, want 1", manifest["files_count"])
 			}
+			client, _ = payload["client"].(map[string]any)
 
 			writer.Header().Set("Content-Type", "application/json")
 			writer.WriteHeader(http.StatusCreated)
@@ -502,7 +541,7 @@ func newUploadCommandTestServer(t *testing.T, expectedToken string) *httptest.Se
 
 	t.Cleanup(server.Close)
 
-	return server
+	return server, func() map[string]any { return client }
 }
 
 func chdirForTest(t *testing.T, directory string) {

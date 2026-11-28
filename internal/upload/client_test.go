@@ -41,6 +41,7 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 			assertRequestMethod(t, request, http.MethodPost)
 			assertRequestHeader(t, request, "Authorization", "Bearer secret-token")
 			assertRequestHeader(t, request, "Content-Type", "application/json")
+			assertRequestHeader(t, request, "User-Agent", "stackradar-cli/dev")
 
 			var payload initializeUploadPayload
 			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
@@ -65,6 +66,9 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 			}
 			if payload.Client.Version != "dev" {
 				t.Fatalf("client version = %q, want dev", payload.Client.Version)
+			}
+			if payload.Client.Integration != "stackradar-action@v1" {
+				t.Fatalf("client integration = %q, want stackradar-action@v1", payload.Client.Integration)
 			}
 			if payload.Manifest.SchemaVersion != 1 {
 				t.Fatalf("manifest schema version = %d, want 1", payload.Manifest.SchemaVersion)
@@ -109,6 +113,7 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 			assertRequestMethod(t, request, http.MethodPut)
 			assertRequestHeader(t, request, "Content-Type", "application/zip")
 			assertRequestHeader(t, request, "X-Upload-Token", "target-token")
+			assertRequestHeader(t, request, "User-Agent", "stackradar-cli/dev")
 			if request.ContentLength != int64(len(bundleBytes)) {
 				t.Fatalf("content length = %d, want %d", request.ContentLength, len(bundleBytes))
 			}
@@ -156,6 +161,7 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 		},
 		ClientName:    "stackradar-cli",
 		ClientVersion: "dev",
+		Integration:   "stackradar-action@v1",
 		HTTPClient:    server.Client(),
 	})
 
@@ -177,6 +183,115 @@ func TestUploadBundleInitializesAndStoresBundle(t *testing.T) {
 	}
 	if result.Status != "processing" {
 		t.Fatalf("status = %q, want processing", result.Status)
+	}
+}
+
+func TestUploadBundleSignedUploadHeadersOverrideUserAgent(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "package.json", "{}\n")
+	bundle, err := BuildBundle(root, []File{{Path: "package.json", Ecosystem: "npm"}})
+	if err != nil {
+		t.Fatalf("build bundle: %v", err)
+	}
+	bundlePath := filepath.Join(t.TempDir(), "stackradar.zip")
+	if err := os.WriteFile(bundlePath, bundle.Bytes, 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	var serverURL string
+	storeCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/ingestions/evidence-uploads":
+			assertRequestHeader(t, request, "User-Agent", "stackradar-cli/dev")
+			writer.WriteHeader(http.StatusCreated)
+			if _, err := writer.Write([]byte(`{
+				"upload_id": "run-123",
+				"upload": {
+					"method": "PUT",
+					"url": "` + serverURL + `/signed-upload",
+					"headers": {"User-Agent": "signed-agent"}
+				}
+			}`)); err != nil {
+				t.Fatalf("write initialize response: %v", err)
+			}
+
+		case "/signed-upload":
+			storeCalled = true
+			assertRequestHeader(t, request, "User-Agent", "signed-agent")
+			writer.WriteHeader(http.StatusAccepted)
+			if _, err := writer.Write([]byte(`{"upload_id": "run-123", "status": "processing"}`)); err != nil {
+				t.Fatalf("write store response: %v", err)
+			}
+
+		default:
+			t.Fatalf("unexpected request path %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	if _, err := UploadBundle(UploadOptions{
+		APIURL:        server.URL,
+		Token:         "secret-token",
+		BundlePath:    bundlePath,
+		ClientName:    "stackradar-cli",
+		ClientVersion: "dev",
+		HTTPClient:    server.Client(),
+	}); err != nil {
+		t.Fatalf("expected upload to succeed, got %v", err)
+	}
+	if !storeCalled {
+		t.Fatal("expected bundle store request")
+	}
+}
+
+func TestUploadBundleOmitsEmptyIntegration(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "package.json", "{}\n")
+	bundle, err := BuildBundle(root, []File{{Path: "package.json", Ecosystem: "npm"}})
+	if err != nil {
+		t.Fatalf("build bundle: %v", err)
+	}
+	bundlePath := filepath.Join(t.TempDir(), "stackradar.zip")
+	if err := os.WriteFile(bundlePath, bundle.Bytes, 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	var client map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		assertRequestMethod(t, request, http.MethodPost)
+		assertRequestHeader(t, request, "User-Agent", "stackradar-cli/1.2.3")
+
+		var payload struct {
+			Client map[string]any `json:"client"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode initialize payload: %v", err)
+		}
+		client = payload.Client
+
+		writer.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	_, err = UploadBundle(UploadOptions{
+		APIURL:        server.URL,
+		Token:         "secret-token",
+		BundlePath:    bundlePath,
+		ClientName:    "stackradar-cli",
+		ClientVersion: "1.2.3",
+		HTTPClient:    server.Client(),
+	})
+	if err == nil {
+		t.Fatal("expected upload error")
+	}
+
+	if client["name"] != "stackradar-cli" || client["version"] != "1.2.3" {
+		t.Fatalf("client = %#v, want name and version", client)
+	}
+	if _, ok := client["integration"]; ok {
+		t.Fatalf("client = %#v, want no integration key", client)
 	}
 }
 
