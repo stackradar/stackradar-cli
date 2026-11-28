@@ -20,6 +20,7 @@ type UploadOptions struct {
 	BundlePath    string
 	ClientName    string
 	ClientVersion string
+	Integration   string
 	HTTPClient    *http.Client
 	Context       *UploadContext
 }
@@ -91,8 +92,9 @@ type initializeBundlePayload struct {
 }
 
 type initializeClientPayload struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Integration string `json:"integration,omitempty"`
 }
 
 type initializeManifestPayload struct {
@@ -156,7 +158,7 @@ func uploadBundleBytes(options UploadOptions, bundle []byte) (UploadResult, erro
 		return UploadResult{}, err
 	}
 
-	stored, err := storeBundle(client, initialized.Upload, bundle)
+	stored, err := storeBundle(client, initialized.Upload, bundle, userAgent(options))
 	if err != nil {
 		return UploadResult{}, err
 	}
@@ -174,8 +176,9 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 	payload := initializeUploadPayload{
 		Bundle: initializeBundlePayload(metadata),
 		Client: initializeClientPayload{
-			Name:    options.ClientName,
-			Version: options.ClientVersion,
+			Name:        options.ClientName,
+			Version:     options.ClientVersion,
+			Integration: options.Integration,
 		},
 		Manifest: initializeManifestPayload(manifest),
 	}
@@ -197,6 +200,7 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 	request.Header.Set("Authorization", "Bearer "+options.Token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", userAgent(options))
 
 	response, err := client.Do(request)
 	if err != nil {
@@ -225,13 +229,14 @@ func initializeUpload(client *http.Client, options UploadOptions, bundle []byte)
 	return decoded, nil
 }
 
-func storeBundle(client *http.Client, target uploadTarget, bundle []byte) (storeUploadResponse, error) {
+func storeBundle(client *http.Client, target uploadTarget, bundle []byte, userAgent string) (storeUploadResponse, error) {
 	request, err := http.NewRequest(http.MethodPut, target.URL, bytes.NewReader(bundle))
 	if err != nil {
 		return storeUploadResponse{}, err
 	}
 	request.Header.Set("Content-Type", bundleContentType)
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", userAgent)
 	request.ContentLength = int64(len(bundle))
 
 	for name, value := range target.Headers {
@@ -256,6 +261,10 @@ func storeBundle(client *http.Client, target uploadTarget, bundle []byte) (store
 	}
 
 	return decoded, nil
+}
+
+func userAgent(options UploadOptions) string {
+	return options.ClientName + "/" + options.ClientVersion
 }
 
 func initializeUploadURL(apiURL string) string {

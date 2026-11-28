@@ -80,6 +80,10 @@ bundle and print upload metadata without sending it:
 stackradar upload stackradar.zip --dry-run
 ```
 
+`upload` sends the CLI name and version with each upload. Wrappers that run
+the CLI, such as `stackradar-action`, set `STACKRADAR_INTEGRATION` to their own
+name and version, which is sent alongside it (up to 200 characters).
+
 ## Bundle Contents
 
 Bundles contain:
